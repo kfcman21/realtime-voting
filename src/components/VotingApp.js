@@ -22,14 +22,22 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Tabs,
+  Tab,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 import {
   Add as AddIcon,
   ThumbUp as ThumbUpIcon,
   Delete as DeleteIcon,
   Settings as SettingsIcon,
-  EmojiEvents as TrophyIcon
+  EmojiEvents as TrophyIcon,
+  Public as PublicIcon,
+  Lock as LockIcon,
+  Edit as EditIcon,
+  Save as SaveIcon
 } from '@mui/icons-material';
 import { collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -44,6 +52,11 @@ const VotingApp = () => {
   const [resetPassword, setResetPassword] = useState('');
   const [error, setError] = useState('');
   const [votedAnswers, setVotedAnswers] = useState(new Set());
+  const [currentTab, setCurrentTab] = useState(0);
+  const [editingTopic, setEditingTopic] = useState(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editTopicTitle, setEditTopicTitle] = useState('');
+  const [editTopicAnswers, setEditTopicAnswers] = useState('');
 
   // 실시간 데이터 구독
   useEffect(() => {
@@ -66,11 +79,67 @@ const VotingApp = () => {
       await addDoc(collection(db, 'topics'), {
         title: newTopic.trim(),
         answers: [],
-        createdAt: new Date()
+        createdAt: new Date(),
+        isPublished: false,
+        isLocked: false
       });
       setNewTopic('');
     } catch (error) {
       setError('주제 추가 중 오류가 발생했습니다.');
+    }
+  };
+
+  // 주제 게시/비게시 토글
+  const handleTogglePublish = async (topicId, currentStatus) => {
+    try {
+      const topicRef = doc(db, 'topics', topicId);
+      await updateDoc(topicRef, { isPublished: !currentStatus });
+    } catch (error) {
+      setError('게시 상태 변경 중 오류가 발생했습니다.');
+    }
+  };
+
+  // 주제 잠금/해제 토글
+  const handleToggleLock = async (topicId, currentStatus) => {
+    try {
+      const topicRef = doc(db, 'topics', topicId);
+      await updateDoc(topicRef, { isLocked: !currentStatus });
+    } catch (error) {
+      setError('잠금 상태 변경 중 오류가 발생했습니다.');
+    }
+  };
+
+  // 주제 편집
+  const handleEditTopic = (topic) => {
+    setEditingTopic(topic);
+    setEditTopicTitle(topic.title);
+    setEditTopicAnswers(topic.answers.map(a => a.text).join('\n'));
+    setShowEditDialog(true);
+  };
+
+  // 주제 저장
+  const handleSaveTopic = async () => {
+    if (!editTopicTitle.trim()) return;
+
+    try {
+      const answersArray = editTopicAnswers
+        .split('\n')
+        .map(answer => answer.trim())
+        .filter(answer => answer.length > 0)
+        .map(answer => ({ text: answer, votes: 0 }));
+
+      const topicRef = doc(db, 'topics', editingTopic.id);
+      await updateDoc(topicRef, {
+        title: editTopicTitle.trim(),
+        answers: answersArray
+      });
+
+      setShowEditDialog(false);
+      setEditingTopic(null);
+      setEditTopicTitle('');
+      setEditTopicAnswers('');
+    } catch (error) {
+      setError('주제 저장 중 오류가 발생했습니다.');
     }
   };
 
@@ -167,6 +236,22 @@ const VotingApp = () => {
     }
   };
 
+  // 탭별 주제 필터링
+  const getFilteredTopics = () => {
+    switch (currentTab) {
+      case 0: // 모든 주제
+        return topics;
+      case 1: // 게시된 주제
+        return topics.filter(topic => topic.isPublished);
+      case 2: // 미게시 주제
+        return topics.filter(topic => !topic.isPublished);
+      default:
+        return topics;
+    }
+  };
+
+  const filteredTopics = getFilteredTopics();
+
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
       <Box sx={{ mb: 4, textAlign: 'center' }}>
@@ -208,17 +293,36 @@ const VotingApp = () => {
         </Box>
       </Paper>
 
+      {/* 탭 메뉴 */}
+      <Paper sx={{ mb: 3 }}>
+        <Tabs value={currentTab} onChange={(e, newValue) => setCurrentTab(newValue)}>
+          <Tab label={`모든 주제 (${topics.length})`} />
+          <Tab label={`게시된 주제 (${topics.filter(t => t.isPublished).length})`} />
+          <Tab label={`미게시 주제 (${topics.filter(t => !t.isPublished).length})`} />
+        </Tabs>
+      </Paper>
+
       {/* 주제 목록 */}
       <Grid container spacing={3}>
-        {topics.map((topic) => {
+        {filteredTopics.map((topic) => {
           const sortedAnswers = getSortedAnswers(topic.answers);
           
           return (
             <Grid item xs={12} key={topic.id}>
               <Paper sx={{ p: 3 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="h6">{topic.title}</Typography>
-                  <Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="h6">{topic.title}</Typography>
+                    {topic.isPublished ? (
+                      <Chip icon={<PublicIcon />} label="게시됨" color="success" size="small" />
+                    ) : (
+                      <Chip icon={<LockIcon />} label="미게시" color="warning" size="small" />
+                    )}
+                    {topic.isLocked && (
+                      <Chip icon={<LockIcon />} label="잠금" color="error" size="small" />
+                    )}
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
                     <Button
                       size="small"
                       onClick={() => {
@@ -229,6 +333,32 @@ const VotingApp = () => {
                     >
                       답변 추가
                     </Button>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleEditTopic(topic)}
+                    >
+                      <EditIcon />
+                    </IconButton>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={topic.isPublished}
+                          onChange={() => handleTogglePublish(topic.id, topic.isPublished)}
+                          size="small"
+                        />
+                      }
+                      label="게시"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={topic.isLocked}
+                          onChange={() => handleToggleLock(topic.id, topic.isLocked)}
+                          size="small"
+                        />
+                      }
+                      label="잠금"
+                    />
                     <IconButton
                       size="small"
                       color="error"
@@ -267,7 +397,7 @@ const VotingApp = () => {
                               <IconButton
                                 onClick={() => handleVote(topic.id, originalIndex)}
                                 color={hasVoted ? "disabled" : "primary"}
-                                disabled={hasVoted}
+                                disabled={hasVoted || topic.isLocked}
                               >
                                 <ThumbUpIcon />
                               </IconButton>
@@ -310,6 +440,35 @@ const VotingApp = () => {
           <Button onClick={() => setShowAddAnswer(false)}>취소</Button>
           <Button onClick={handleAddAnswers} variant="contained">
             추가
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 주제 편집 다이얼로그 */}
+      <Dialog open={showEditDialog} onClose={() => setShowEditDialog(false)} maxWidth="md" fullWidth>
+        <DialogTitle>주제 편집</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            label="주제 제목"
+            value={editTopicTitle}
+            onChange={(e) => setEditTopicTitle(e.target.value)}
+            sx={{ mb: 2, mt: 1 }}
+          />
+          <TextField
+            fullWidth
+            multiline
+            rows={8}
+            label="답변들을 입력하세요 (한 줄에 하나씩)"
+            value={editTopicAnswers}
+            onChange={(e) => setEditTopicAnswers(e.target.value)}
+            placeholder="답변 1&#10;답변 2&#10;답변 3"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowEditDialog(false)}>취소</Button>
+          <Button onClick={handleSaveTopic} variant="contained" startIcon={<SaveIcon />}>
+            저장
           </Button>
         </DialogActions>
       </Dialog>
