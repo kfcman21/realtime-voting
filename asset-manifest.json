@@ -1,10 +1,10 @@
 {
   "files": {
-    "main.js": "/realtime-voting/static/js/main.afde0a8c.js",
+    "main.js": "/realtime-voting/static/js/main.12139f8d.js",
     "index.html": "/realtime-voting/index.html",
-    "main.afde0a8c.js.map": "/realtime-voting/static/js/main.afde0a8c.js.map"
+    "main.12139f8d.js.map": "/realtime-voting/static/js/main.12139f8d.js.map"
   },
   "entrypoints": [
-    "static/js/main.afde0a8c.js"
+    "static/js/main.12139f8d.js"
   ]
 }
