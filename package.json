@@ -2,7 +2,7 @@
   "name": "realtime-voting-app",
   "version": "1.0.0",
   "description": "실시간 공감투표 앱",
-  "homepage": "https://[your-github-username].github.io/[your-repo-name]",
+  "homepage": "https://kfcman21.github.io/realtime-voting",
   "main": "index.js",
   "scripts": {
     "start": "react-scripts start",
