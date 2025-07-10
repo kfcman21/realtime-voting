@@ -44,7 +44,7 @@ import {
   Info as InfoIcon,
   TrendingUp as TrendingUpIcon
 } from '@mui/icons-material';
-import { collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, increment } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, increment, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
 const VotingApp = () => {
@@ -63,23 +63,56 @@ const VotingApp = () => {
   const [editTopicTitle, setEditTopicTitle] = useState('');
   const [editTopicAnswers, setEditTopicAnswers] = useState('');
   const [loading, setLoading] = useState(true);
+  const [firebaseConnected, setFirebaseConnected] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showAdminDialog, setShowAdminDialog] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminError, setAdminError] = useState('');
+
+  // Firebase 연결 상태 확인
+  useEffect(() => {
+    const checkFirebaseConnection = async () => {
+      try {
+        // 간단한 읽기 테스트
+        const testQuery = collection(db, 'topics');
+        const testSnapshot = await getDocs(testQuery);
+        console.log('Firebase 연결 성공:', testSnapshot.size, '개 문서');
+        setFirebaseConnected(true);
+      } catch (error) {
+        console.error('Firebase 연결 실패:', error);
+        setFirebaseConnected(false);
+        setError('Firebase 연결에 실패했습니다: ' + error.message);
+      }
+    };
+    
+    checkFirebaseConnection();
+  }, []);
 
   // 실시간 데이터 구독
   useEffect(() => {
+    console.log('Firebase 실시간 구독 시작...');
+    
     const unsubscribe = onSnapshot(collection(db, 'topics'), (snapshot) => {
+      console.log('Firebase 데이터 수신:', snapshot.size, '개 문서');
       const topicsData = [];
       snapshot.forEach((doc) => {
-        topicsData.push({ id: doc.id, ...doc.data() });
+        const data = doc.data();
+        console.log('주제 데이터:', doc.id, data);
+        topicsData.push({ id: doc.id, ...data });
       });
+      console.log('처리된 주제 수:', topicsData.length);
       setTopics(topicsData);
       setLoading(false);
     }, (error) => {
       console.error('Firebase 실시간 구독 오류:', error);
-      setError('실시간 데이터 연결에 실패했습니다.');
+      setError('실시간 데이터 연결에 실패했습니다: ' + error.message);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      console.log('Firebase 실시간 구독 해제');
+      unsubscribe();
+    };
   }, []);
 
   // 새 주제 추가
@@ -103,8 +136,25 @@ const VotingApp = () => {
     }
   };
 
+  // 관리자 인증
+  const handleAdminAuth = () => {
+    if (adminPassword === 'admin123') {
+      setIsAdmin(true);
+      setShowAdminDialog(false);
+      setAdminPassword('');
+      setAdminError('');
+    } else {
+      setAdminError('비밀번호가 올바르지 않습니다.');
+    }
+  };
+
   // 주제 게시/비게시 토글
   const handleTogglePublish = async (topicId, currentStatus) => {
+    if (!isAdmin) {
+      setShowAdminDialog(true);
+      return;
+    }
+
     try {
       const topicRef = doc(db, 'topics', topicId);
       await updateDoc(topicRef, { isPublished: !currentStatus });
@@ -115,6 +165,11 @@ const VotingApp = () => {
 
   // 주제 잠금/해제 토글
   const handleToggleLock = async (topicId, currentStatus) => {
+    if (!isAdmin) {
+      setShowAdminDialog(true);
+      return;
+    }
+
     try {
       const topicRef = doc(db, 'topics', topicId);
       await updateDoc(topicRef, { isLocked: !currentStatus });
@@ -125,6 +180,11 @@ const VotingApp = () => {
 
   // 주제 편집
   const handleEditTopic = (topic) => {
+    if (!isAdmin) {
+      setShowAdminDialog(true);
+      return;
+    }
+    
     setEditingTopic(topic);
     setEditTopicTitle(topic.title);
     setEditTopicAnswers(topic.answers.map(a => a.text).join('\n'));
@@ -199,23 +259,44 @@ const VotingApp = () => {
       return;
     }
 
+    console.log('투표 시작:', topicId, answerIndex);
+    
     try {
       const topicRef = doc(db, 'topics', topicId);
       const topic = topics.find(t => t.id === topicId);
+      
+      if (!topic) {
+        setError('주제를 찾을 수 없습니다.');
+        return;
+      }
+      
       const updatedAnswers = [...topic.answers];
+      if (!updatedAnswers[answerIndex]) {
+        setError('답변을 찾을 수 없습니다.');
+        return;
+      }
+      
       updatedAnswers[answerIndex].votes += 1;
+      console.log('투표 업데이트:', updatedAnswers[answerIndex]);
       
       await updateDoc(topicRef, { answers: updatedAnswers });
+      console.log('투표 완료');
       
       // 투표 기록 추가
       setVotedAnswers(prev => new Set([...prev, voteKey]));
     } catch (error) {
-      setError('투표 중 오류가 발생했습니다.');
+      console.error('투표 오류:', error);
+      setError('투표 중 오류가 발생했습니다: ' + error.message);
     }
   };
 
   // 주제 삭제
   const handleDeleteTopic = async (topicId) => {
+    if (!isAdmin) {
+      setShowAdminDialog(true);
+      return;
+    }
+
     try {
       setLoading(true);
       await deleteDoc(doc(db, 'topics', topicId));
@@ -319,6 +400,18 @@ const VotingApp = () => {
         </Alert>
       )}
 
+      {!firebaseConnected && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Firebase 연결 중... 데이터를 불러올 수 없습니다.
+        </Alert>
+      )}
+
+      {isAdmin && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setIsAdmin(false)}>
+          관리자 권한이 활성화되었습니다. 주제 관리 기능을 사용할 수 있습니다.
+        </Alert>
+      )}
+
       {/* 새 주제 추가 */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" gutterBottom>
@@ -397,6 +490,8 @@ const VotingApp = () => {
                         size="small"
                         onClick={() => handleEditTopic(topic)}
                         disabled={loading}
+                        color={!isAdmin ? "disabled" : "primary"}
+                        title={!isAdmin ? "관리자 권한 필요" : "편집"}
                       >
                         <EditIcon />
                       </IconButton>
@@ -410,6 +505,7 @@ const VotingApp = () => {
                           />
                         }
                         label="게시"
+                        title={!isAdmin ? "관리자 권한 필요" : "게시 상태 변경"}
                       />
                       <FormControlLabel
                         control={
@@ -421,12 +517,14 @@ const VotingApp = () => {
                           />
                         }
                         label="잠금"
+                        title={!isAdmin ? "관리자 권한 필요" : "잠금 상태 변경"}
                       />
                       <IconButton
                         size="small"
                         color="error"
                         onClick={() => handleDeleteTopic(topic.id)}
                         disabled={loading}
+                        title={!isAdmin ? "관리자 권한 필요" : "삭제"}
                       >
                         <DeleteIcon />
                       </IconButton>
@@ -537,6 +635,33 @@ const VotingApp = () => {
           <Button onClick={() => setShowEditDialog(false)} disabled={loading}>취소</Button>
           <Button onClick={handleSaveTopic} variant="contained" startIcon={<SaveIcon />} disabled={loading}>
             저장
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 관리자 인증 다이얼로그 */}
+      <Dialog open={showAdminDialog} onClose={() => setShowAdminDialog(false)}>
+        <DialogTitle>관리자 인증</DialogTitle>
+        <DialogContent>
+          <Typography gutterBottom>
+            관리자 권한이 필요한 작업입니다. 비밀번호를 입력하세요.
+          </Typography>
+          <TextField
+            fullWidth
+            type="password"
+            label="관리자 비밀번호 (admin123)"
+            value={adminPassword}
+            onChange={(e) => setAdminPassword(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleAdminAuth()}
+            sx={{ mt: 2 }}
+            error={!!adminError}
+            helperText={adminError}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAdminDialog(false)}>취소</Button>
+          <Button onClick={handleAdminAuth} variant="contained">
+            인증
           </Button>
         </DialogActions>
       </Dialog>
